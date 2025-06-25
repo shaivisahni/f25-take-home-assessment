@@ -4,14 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Loader2 } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -19,6 +12,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Textarea } from "./ui/textarea";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface WeatherFormData {
   date: string;
@@ -26,87 +21,47 @@ interface WeatherFormData {
   notes: string;
 }
 
-function formatDateForDisplay(date: Date | undefined): string {
-  if (!date) return "";
-  return date.toLocaleDateString("en-US", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
+interface WeatherFormProps {
+  onResult: (data: any) => void;
+  isLoading: boolean;
 }
 
-function formatDateForAPI(date: Date | undefined): string {
-  if (!date) return "";
-  return date.toISOString().split("T")[0];
-}
-
-function isValidDate(date: Date | undefined): boolean {
-  return date instanceof Date && !isNaN(date.getTime());
-}
-
-export function WeatherForm() {
+export function WeatherForm({ onResult, isLoading }: WeatherFormProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(
-    new Date(),
-  );
-  const [calendarMonth, setCalendarMonth] = useState<Date | undefined>(
-    new Date(),
-  );
-  const [displayValue, setDisplayValue] = useState(
-    formatDateForDisplay(new Date()),
-  );
-
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [formData, setFormData] = useState<WeatherFormData>({
-    date: formatDateForAPI(new Date()),
+    date: format(new Date(), "yyyy-MM-dd"),
     location: "",
     notes: "",
   });
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
     message: string;
-    id?: string;
   } | null>(null);
 
   const handleDateChange = (date: Date | undefined) => {
+    if (!date) return;
     setSelectedDate(date);
-    setDisplayValue(formatDateForDisplay(date));
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
-      date: formatDateForAPI(date),
+      date: format(date, "yyyy-MM-dd")
     }));
     setCalendarOpen(false);
   };
 
   const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
-      [name]: value,
+      [name]: value
     }));
-  };
-
-  const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const inputValue = e.target.value;
-    setDisplayValue(inputValue);
-
-    const parsedDate = new Date(inputValue);
-    if (isValidDate(parsedDate)) {
-      setSelectedDate(parsedDate);
-      setCalendarMonth(parsedDate);
-      setFormData((prev) => ({
-        ...prev,
-        date: formatDateForAPI(parsedDate),
-      }));
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setResult(null);
 
     try {
@@ -115,151 +70,131 @@ export function WeatherForm() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          date: format(selectedDate, "yyyy-MM-dd"),
+          location: formData.location,
+          notes: formData.notes
+        }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        const data = await response.json();
         setResult({
           success: true,
-          message: "Weather request submitted successfully!",
-          id: data.id,
+          message: "Weather data retrieved successfully!"
         });
-        // Reset form after successful submission
-        const today = new Date();
-        setSelectedDate(today);
-        setDisplayValue(formatDateForDisplay(today));
-        setFormData({
-          date: formatDateForAPI(today),
-          location: "",
-          notes: "",
+
+        onResult({
+          date: format(selectedDate, "yyyy-MM-dd"),
+          location: formData.location,
+          notes: formData.notes,
+          weather: {
+            temperature: data.temperature ?? "N/A",
+            weather_descriptions: [data.description ?? "N/A"],
+            humidity: data.weather?.humidity ?? "N/A",
+            wind_speed: data.weather?.wind_speed ?? "N/A",
+            pressure: data.weather?.pressure ?? "N/A",
+            cloudcover: data.weather?.cloudcover ?? "N/A"
+          }
         });
       } else {
-        const errorData = await response.json();
         setResult({
           success: false,
-          message: errorData.detail || "Failed to submit weather request",
+          message: data.detail || "Failed to fetch weather data"
         });
       }
-    } catch {
+    } catch (error) {
       setResult({
         success: false,
-        message: "Network error: Could not connect to the server",
+        message: "Network error: Could not connect to the server"
       });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader>
-        <CardTitle>Weather Data Request</CardTitle>
-        <CardDescription>
-          Submit a weather data request for a specific location and date
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-col gap-3">
-            <Label htmlFor="date" className="px-1">
-              Date
-            </Label>
-            <div className="relative flex gap-2">
-              <Input
-                id="date"
-                value={displayValue}
-                placeholder="Select a date"
-                className="bg-background pr-10"
-                onChange={handleDateInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setCalendarOpen(true);
-                  }
-                }}
-                required
-              />
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="absolute top-1/2 right-2 size-6 -translate-y-1/2"
-                  >
-                    <CalendarIcon className="size-3.5" />
-                    <span className="sr-only">Select date</span>
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto overflow-hidden p-0"
-                  align="end"
-                  alignOffset={-8}
-                  sideOffset={10}
-                >
-                  <Calendar
-                    mode="single"
-                    selected={selectedDate}
-                    captionLayout="dropdown"
-                    month={calendarMonth}
-                    onMonthChange={setCalendarMonth}
-                    onSelect={handleDateChange}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="location">Location</Label>
-            <Input
-              id="location"
-              name="location"
-              type="text"
-              placeholder="e.g., New York, London, Tokyo"
-              value={formData.location}
-              onChange={handleInputChange}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes (Optional)</Label>
-            <Textarea
-              id="notes"
-              name="notes"
-              rows={3}
-              placeholder="Any additional notes about this weather request..."
-              value={formData.notes}
-              onChange={handleInputChange}
-            />
-          </div>
-
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Submitting..." : "Submit Weather Request"}
-          </Button>
-
-          {result && (
-            <div
-              className={`p-3 rounded-md ${
-                result.success
-                  ? "bg-green-900/20 text-green-500 border border-green-500"
-                  : "bg-red-900/20 text-red-500 border border-red-500"
-              }`}
-            >
-              <p className="text-sm font-medium">{result.message}</p>
-              {result.success && result.id && (
-                <p className="text-xs mt-1">
-                  Your weather request ID:{" "}
-                  <code className="bg-green-500/20 text-green-400 px-1 rounded">
-                    {result.id}
-                  </code>
-                </p>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Date Picker */}
+     { /*
+      <div className="space-y-2">
+        <Label htmlFor="date" className="text-gray-300">Date</Label>
+        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={cn(
+                "w-full justify-start text-left font-normal h-12 bg-gray-700 border-gray-600 hover:bg-gray-600",
+                !selectedDate && "text-muted-foreground"
               )}
-            </div>
-          )}
-        </form>
-      </CardContent>
-    </Card>
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              {format(selectedDate, "PPP")}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0 bg-gray-800 border-gray-700" align="start">
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={handleDateChange}
+              initialFocus
+              className="bg-gray-800 text-white"
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+*/}
+      {/* Location Input */}
+      <div className="space-y-2">
+        <Label htmlFor="location" className="text-gray-300">Location</Label>
+        <Input
+          id="location"
+          name="location"
+          type="text"
+          placeholder="e.g., New York, London, Tokyo"
+          value={formData.location}
+          onChange={handleInputChange}
+          required
+          className="h-12 bg-gray-700 border-gray-600"
+        />
+      </div>
+
+      {/* Notes */}
+      <div className="space-y-2">
+        <Label htmlFor="notes" className="text-gray-300">Notes (Optional)</Label>
+        <Textarea
+          id="notes"
+          name="notes"
+          rows={3}
+          placeholder="Paste any notes you may have here!"
+          value={formData.notes}
+          onChange={handleInputChange}
+          className="min-h-[100px] bg-gray-700 border-gray-600"
+        />
+      </div>
+
+      {/* Submit */}
+      <Button type="submit" className="w-full h-12" disabled={isLoading}>
+        {isLoading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Fetching Weather...
+          </>
+        ) : (
+          "Get Weather Data"
+        )}
+      </Button>
+
+      {/* Result */}
+      {result && (
+        <div className={cn(
+          "p-4 rounded-md border",
+          result.success 
+            ? "bg-green-900/30 border-green-800 text-green-200"
+            : "bg-red-900/30 border-red-800 text-red-200"
+        )}>
+          <p className="font-medium">{result.message}</p>
+        </div>
+      )}
+    </form>
   );
 }
